@@ -30,6 +30,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.17.1 // indirect
 	github.com/aws/smithy-go v1.13.4 // indirect
 	github.com/doug-martin/goqu/v9 v9.18.0 // indirect
+	github.com/dstotijn/go-notion v0.9.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v0.6.13 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/glebarez/go-sqlite v1.19.2 // indirect
