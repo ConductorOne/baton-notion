@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	notionScim "github.com/ConductorOne/baton-notion/pkg/notion"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -20,14 +21,28 @@ var (
 			v2.ResourceType_TRAIT_USER,
 		},
 	}
+	resourceTypeGroup = &v2.ResourceType{
+		Id:          "group",
+		DisplayName: "Group",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_GROUP,
+		},
+	}
 )
 
 type Notion struct {
-	client *notion.Client
-	apiKey string
+	client     *notion.Client
+	scimClient *notionScim.ScimClient
 }
 
 func (nt *Notion) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
+	if nt.scimClient != nil {
+		return []connectorbuilder.ResourceSyncer{
+			userBuilder(nt.client),
+			groupBuilder(nt.client, nt.scimClient),
+		}
+	}
+
 	return []connectorbuilder.ResourceSyncer{
 		userBuilder(nt.client),
 	}
@@ -51,14 +66,19 @@ func (nt *Notion) Validate(ctx context.Context) (annotations.Annotations, error)
 }
 
 // New returns the Notion connector.
-func New(ctx context.Context, apiKey string) (*Notion, error) {
+func New(ctx context.Context, apiKey string, scimToken string) (*Notion, error) {
+	var scimClient *notionScim.ScimClient
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
 	}
 
+	if scimToken != "" {
+		scimClient = notionScim.NewScimClient(scimToken, httpClient)
+	}
+
 	return &Notion{
-		client: notion.NewClient(apiKey, notion.WithHTTPClient(httpClient)),
-		apiKey: apiKey,
+		client:     notion.NewClient(apiKey, notion.WithHTTPClient(httpClient)),
+		scimClient: scimClient,
 	}, nil
 }
