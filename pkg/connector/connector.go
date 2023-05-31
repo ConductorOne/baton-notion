@@ -52,6 +52,7 @@ func (nt *Notion) ResourceSyncers(ctx context.Context) []connectorbuilder.Resour
 func (nt *Notion) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Notion",
+		Description: "Connector syncing users and groups from Notion to Baton.",
 	}, nil
 }
 
