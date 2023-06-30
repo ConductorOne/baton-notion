@@ -4,37 +4,82 @@ import (
 	"context"
 	"fmt"
 
+	notionScim "github.com/ConductorOne/baton-notion/pkg/notion"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
+	"github.com/dstotijn/go-notion"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
-// TODO: implement your connector here
-type connectorImpl struct {
+var (
+	resourceTypeUser = &v2.ResourceType{
+		Id:          "user",
+		DisplayName: "User",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_USER,
+		},
+	}
+	resourceTypeGroup = &v2.ResourceType{
+		Id:          "group",
+		DisplayName: "Group",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_GROUP,
+		},
+	}
+)
+
+type Notion struct {
+	client     *notion.Client
+	scimClient *notionScim.ScimClient
 }
 
-func (c *connectorImpl) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func (nt *Notion) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
+	if nt.scimClient != nil {
+		return []connectorbuilder.ResourceSyncer{
+			userBuilder(nt.client),
+			groupBuilder(nt.client, nt.scimClient),
+		}
+	}
+
+	return []connectorbuilder.ResourceSyncer{
+		userBuilder(nt.client),
+	}
 }
 
-func (c *connectorImpl) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+// Metadata returns metadata about the connector.
+func (nt *Notion) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
+	return &v2.ConnectorMetadata{
+		DisplayName: "Notion",
+		Description: "Connector syncing users and groups from Notion to Baton.",
+	}, nil
 }
 
-func (c *connectorImpl) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+// Validate hits the Notion API to validate that the API key passed works.
+func (nt *Notion) Validate(ctx context.Context) (annotations.Annotations, error) {
+	_, err := nt.client.FindUserByID(ctx, "me")
+	if err != nil {
+		return nil, fmt.Errorf("notion-connector: failed to authenticate. Error: %w", err)
+	}
+
+	return nil, nil
 }
 
-func (c *connectorImpl) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
+// New returns the Notion connector.
+func New(ctx context.Context, apiKey string, scimToken string) (*Notion, error) {
+	var scimClient *notionScim.ScimClient
+	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
+	if err != nil {
+		return nil, err
+	}
 
-func (c *connectorImpl) GetMetadata(ctx context.Context, req *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
+	if scimToken != "" {
+		scimClient = notionScim.NewScimClient(scimToken, httpClient)
+	}
 
-func (c *connectorImpl) Validate(ctx context.Context, req *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (c *connectorImpl) GetAsset(req *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
-	return fmt.Errorf("not implemented")
+	return &Notion{
+		client:     notion.NewClient(apiKey, notion.WithHTTPClient(httpClient)),
+		scimClient: scimClient,
+	}, nil
 }
