@@ -73,13 +73,9 @@ Flags:
       --client-id string              The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string          The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
   -f, --file string                   The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
-      --grant-entitlement string      The entitlement to grant to the supplied principal ($BATON_GRANT_ENTITLEMENT)
-      --grant-principal string        The resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)
-      --grant-principal-type string   The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)
   -h, --help                          help for baton-notion
       --log-format string             The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
       --log-level string              The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
-      --revoke-grant string           The grant to revoke ($BATON_REVOKE_GRANT)
       --scim-token string             The Notion SCIM token used to connect to the Notion SCIM API. ($BATON_SCIM_TOKEN)
   -v, --version                       version for baton-notion
 
