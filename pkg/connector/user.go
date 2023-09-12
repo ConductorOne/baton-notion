@@ -48,6 +48,7 @@ func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
 	userTraitOptions := []rs.UserTraitOption{
 		rs.WithUserProfile(profile),
 		rs.WithEmail(email, true),
+		rs.WithStatus(v2.UserTrait_Status_STATUS_ENABLED),
 	}
 
 	ret, err := rs.NewUserResource(
