@@ -36,7 +36,7 @@ type Notion struct {
 	scimClient *notionScim.ScimClient
 }
 
-func (nt *Notion) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
+func (nt *Notion) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
 	if nt.scimClient != nil {
 		return []connectorbuilder.ResourceSyncer{
 			userBuilder(nt.client),
@@ -50,10 +50,10 @@ func (nt *Notion) ResourceSyncers(ctx context.Context) []connectorbuilder.Resour
 }
 
 // Metadata returns metadata about the connector.
-func (nt *Notion) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
+func (nt *Notion) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Notion",
-		Description: "Connector syncing users and groups from Notion to Baton.",
+		Description: "Connector syncing users and groups from Notion",
 	}, nil
 }
 
