@@ -5,15 +5,19 @@ import (
 	"fmt"
 	"strings"
 
+	notionScim "github.com/conductorone/baton-notion/pkg/notion"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/dstotijn/go-notion"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type userBuilder struct {
-	client *notion.Client
+	scimClient *notionScim.ScimClient
+	client     *notion.Client
 }
 
 func (b *userBuilder) ResourceType(_ context.Context) *v2.ResourceType {
@@ -102,8 +106,29 @@ func (b *userBuilder) Grants(_ context.Context, _ *v2.Resource, _ *pagination.To
 	return nil, "", nil, nil
 }
 
-func newUserBuilder(client *notion.Client) *userBuilder {
+func (b *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
+	if b.scimClient == nil {
+		return nil, fmt.Errorf("baton-notion: scim client not initialized")
+	}
+
+	userID := principal.Resource
+
+	err := b.scimClient.DeleteUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	deletedUser, err := b.scimClient.GetUser(ctx, userID)
+	if err == nil || status.Code(err) != codes.NotFound || deletedUser != nil {
+		return nil, fmt.Errorf("error deleting user. User %s still exists", userID)
+	}
+
+	return nil, nil
+}
+
+func newUserBuilder(client *notion.Client, scimClient *notionScim.ScimClient) *userBuilder {
 	return &userBuilder{
-		client: client,
+		scimClient: scimClient,
+		client:     client,
 	}
 }

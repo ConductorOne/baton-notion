@@ -21,13 +21,13 @@ type Connector struct {
 func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
 	if d.scimClient != nil {
 		return []connectorbuilder.ResourceSyncer{
-			newUserBuilder(d.client),
+			newUserBuilder(d.client, d.scimClient),
 			newGroupBuilder(d.client, d.scimClient),
 		}
 	}
 
 	return []connectorbuilder.ResourceSyncer{
-		newUserBuilder(d.client),
+		newUserBuilder(d.client, nil),
 	}
 }
 

@@ -15,6 +15,8 @@ const (
 	// 1-based not zero based.
 	defaultStartIndex = 1
 	defaultCount      = 100
+
+	defaultUserSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
 )
 
 type ScimClient struct {
@@ -97,6 +99,33 @@ func (c *ScimClient) GetGroup(ctx context.Context, groupId string) (Group, error
 		return Group{}, groupErr
 	}
 	return res, nil
+}
+
+func (c *ScimClient) GetUser(ctx context.Context, userID string) (*User, error) {
+	var userData *User
+	requestURL := fmt.Sprint(baseUrl, "/Users/", userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.doRequest(req, &userData)
+	if err != nil {
+		return nil, err
+	}
+
+	return userData, nil
+}
+
+func (c *ScimClient) DeleteUser(ctx context.Context, userID string) error {
+	// DELETE <https://api.notion.com/scim/v2/Users/><id>
+	requestURL := fmt.Sprint(baseUrl, "/Users/", userID)
+	_, err := http.NewRequestWithContext(ctx, http.MethodDelete, requestURL, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *ScimClient) doRequest(req *http.Request, resType interface{}) error {
