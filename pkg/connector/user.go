@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	notionScim "github.com/conductorone/baton-notion/pkg/notion"
+	notionScim "github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
