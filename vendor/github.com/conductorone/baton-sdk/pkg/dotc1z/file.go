@@ -11,11 +11,19 @@ import (
 	"go.uber.org/zap"
 )
 
-func loadC1z(filePath string) (string, error) {
-	workingDir, err := os.MkdirTemp("", "c1z")
+func loadC1z(filePath string, tmpDir string) (string, error) {
+	var err error
+	workingDir, err := os.MkdirTemp(tmpDir, "c1z")
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		if err != nil {
+			if removeErr := os.RemoveAll(workingDir); removeErr != nil {
+				err = errors.Join(err, removeErr)
+			}
+		}
+	}()
 	dbFilePath := filepath.Join(workingDir, "db")
 	dbFile, err := os.Create(dbFilePath)
 	if err != nil {
