@@ -12,17 +12,16 @@ import (
 	"github.com/dstotijn/go-notion"
 )
 
-type userResourceType struct {
-	resourceType *v2.ResourceType
-	client       *notion.Client
+type userBuilder struct {
+	client *notion.Client
 }
 
-func (o *userResourceType) ResourceType(_ context.Context) *v2.ResourceType {
-	return o.resourceType
+func (b *userBuilder) ResourceType(_ context.Context) *v2.ResourceType {
+	return userResourceType
 }
 
 // Create a new connector resource for a Notion user.
-func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
+func userResource(user notion.User) (*v2.Resource, error) {
 	names := strings.SplitN(user.Name, " ", 2)
 	var firstName, lastName, email string
 
@@ -53,7 +52,7 @@ func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
 
 	ret, err := rs.NewUserResource(
 		user.Name,
-		resourceTypeUser,
+		userResourceType,
 		user.ID,
 		userTraitOptions,
 	)
@@ -64,14 +63,14 @@ func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (b *userBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var pageToken string
-	bag, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: resourceTypeUser.Id})
+	bag, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: userResourceType.Id})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	usersResponse, err := o.client.ListUsers(ctx, &notion.PaginationQuery{PageSize: resourcePageSize, StartCursor: bag.PageToken()})
+	usersResponse, err := b.client.ListUsers(ctx, &notion.PaginationQuery{PageSize: resourcePageSize, StartCursor: bag.PageToken()})
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("notion-connector: failed to list users: %w", err)
 	}
@@ -85,7 +84,7 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, to
 
 	var rv []*v2.Resource
 	for _, user := range usersResponse.Results {
-		ur, err := userResource(ctx, user)
+		ur, err := userResource(user)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -95,17 +94,16 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, to
 	return rv, pageToken, nil, nil
 }
 
-func (o *userResourceType) Entitlements(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (b *userBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
 
-func (o *userResourceType) Grants(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (b *userBuilder) Grants(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
 
-func userBuilder(client *notion.Client) *userResourceType {
-	return &userResourceType{
-		resourceType: resourceTypeUser,
-		client:       client,
+func newUserBuilder(client *notion.Client) *userBuilder {
+	return &userBuilder{
+		client: client,
 	}
 }

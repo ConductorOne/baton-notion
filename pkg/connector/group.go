@@ -9,21 +9,20 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/dstotijn/go-notion"
 )
 
 const memberEntitlement = "member"
 
-type groupResourceType struct {
-	resourceType *v2.ResourceType
-	scimClient   *notionScim.ScimClient
-	client       *notion.Client
+type groupBuilder struct {
+	scimClient *notionScim.ScimClient
+	client     *notion.Client
 }
 
-func (g *groupResourceType) ResourceType(_ context.Context) *v2.ResourceType {
-	return g.resourceType
+func (b *groupBuilder) ResourceType(_ context.Context) *v2.ResourceType {
+	return groupResourceType
 }
 
 // Create a new connector resource for a Notion group.
@@ -37,7 +36,7 @@ func groupResource(group *notionScim.Group) (*v2.Resource, error) {
 
 	ret, err := rs.NewGroupResource(
 		group.DisplayName,
-		resourceTypeGroup,
+		groupResourceType,
 		group.ID,
 		groupTraitOptions,
 	)
@@ -48,8 +47,8 @@ func groupResource(group *notionScim.Group) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func (g *groupResourceType) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-	groups, err := g.scimClient.GetPaginatedGroups(ctx)
+func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	groups, err := b.scimClient.GetPaginatedGroups(ctx)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("notion-connector: failed to list groups: %w", err)
 	}
@@ -67,11 +66,11 @@ func (g *groupResourceType) List(ctx context.Context, _ *v2.ResourceId, token *p
 	return rv, "", nil, nil
 }
 
-func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (b *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	var rv []*v2.Entitlement
 
 	assigmentOptions := []ent.EntitlementOption{
-		ent.WithGrantableTo(resourceTypeUser),
+		ent.WithGrantableTo(userResourceType),
 		ent.WithDescription(fmt.Sprintf("Member of %s Group in Notion", resource.DisplayName)),
 		ent.WithDisplayName(fmt.Sprintf("%s Group %s", resource.DisplayName, memberEntitlement)),
 	}
@@ -82,21 +81,21 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	return rv, "", nil, nil
 }
 
-func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (b *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
 
-	group, err := g.scimClient.GetGroup(ctx, resource.Id.Resource)
+	group, err := b.scimClient.GetGroup(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
 	for _, member := range group.Members {
 		memberCopy := member
-		user, err := g.client.FindUserByID(ctx, memberCopy.Value)
+		user, err := b.client.FindUserByID(ctx, memberCopy.Value)
 		if err != nil {
 			return nil, "", nil, err
 		}
-		ur, err := userResource(ctx, user)
+		ur, err := userResource(user)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -108,10 +107,9 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, t
 	return rv, "", nil, nil
 }
 
-func groupBuilder(client *notion.Client, scimClient *notionScim.ScimClient) *groupResourceType {
-	return &groupResourceType{
-		resourceType: resourceTypeGroup,
-		scimClient:   scimClient,
-		client:       client,
+func newGroupBuilder(client *notion.Client, scimClient *notionScim.ScimClient) *groupBuilder {
+	return &groupBuilder{
+		scimClient: scimClient,
+		client:     client,
 	}
 }

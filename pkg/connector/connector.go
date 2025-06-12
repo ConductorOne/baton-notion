@@ -13,44 +13,26 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
-var (
-	resourceTypeUser = &v2.ResourceType{
-		Id:          "user",
-		DisplayName: "User",
-		Traits: []v2.ResourceType_Trait{
-			v2.ResourceType_TRAIT_USER,
-		},
-		Annotations: annotationsForUserResourceType(),
-	}
-	resourceTypeGroup = &v2.ResourceType{
-		Id:          "group",
-		DisplayName: "Group",
-		Traits: []v2.ResourceType_Trait{
-			v2.ResourceType_TRAIT_GROUP,
-		},
-	}
-)
-
-type Notion struct {
+type Connector struct {
 	client     *notion.Client
 	scimClient *notionScim.ScimClient
 }
 
-func (nt *Notion) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
-	if nt.scimClient != nil {
+func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
+	if d.scimClient != nil {
 		return []connectorbuilder.ResourceSyncer{
-			userBuilder(nt.client),
-			groupBuilder(nt.client, nt.scimClient),
+			newUserBuilder(d.client),
+			newGroupBuilder(d.client, d.scimClient),
 		}
 	}
 
 	return []connectorbuilder.ResourceSyncer{
-		userBuilder(nt.client),
+		newUserBuilder(d.client),
 	}
 }
 
 // Metadata returns metadata about the connector.
-func (nt *Notion) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
+func (d *Connector) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Notion",
 		Description: "Connector syncing users and groups from Notion",
@@ -58,8 +40,8 @@ func (nt *Notion) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
 }
 
 // Validate hits the Notion API to validate that the API key passed works.
-func (nt *Notion) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, err := nt.client.FindUserByID(ctx, "me")
+func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
+	_, err := d.client.FindUserByID(ctx, "me")
 	if err != nil {
 		return nil, fmt.Errorf("notion-connector: failed to authenticate. Error: %w", err)
 	}
@@ -68,7 +50,7 @@ func (nt *Notion) Validate(ctx context.Context) (annotations.Annotations, error)
 }
 
 // New returns the Notion connector.
-func New(ctx context.Context, apiKey string, scimToken string) (*Notion, error) {
+func New(ctx context.Context, apiKey string, scimToken string) (*Connector, error) {
 	var scimClient *notionScim.ScimClient
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
@@ -79,7 +61,7 @@ func New(ctx context.Context, apiKey string, scimToken string) (*Notion, error) 
 		scimClient = notionScim.NewScimClient(scimToken, httpClient)
 	}
 
-	return &Notion{
+	return &Connector{
 		client:     notion.NewClient(apiKey, notion.WithHTTPClient(httpClient)),
 		scimClient: scimClient,
 	}, nil
