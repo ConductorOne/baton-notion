@@ -5,24 +5,28 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/dstotijn/go-notion"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-type userResourceType struct {
-	resourceType *v2.ResourceType
-	client       *notion.Client
+type userBuilder struct {
+	scimClient *client.ScimClient
+	client     *notion.Client
 }
 
-func (o *userResourceType) ResourceType(_ context.Context) *v2.ResourceType {
-	return o.resourceType
+func (b *userBuilder) ResourceType(_ context.Context) *v2.ResourceType {
+	return userResourceType
 }
 
 // Create a new connector resource for a Notion user.
-func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
+func userResource(user notion.User) (*v2.Resource, error) {
 	names := strings.SplitN(user.Name, " ", 2)
 	var firstName, lastName, email string
 
@@ -53,7 +57,7 @@ func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
 
 	ret, err := rs.NewUserResource(
 		user.Name,
-		resourceTypeUser,
+		userResourceType,
 		user.ID,
 		userTraitOptions,
 	)
@@ -64,14 +68,14 @@ func userResource(ctx context.Context, user notion.User) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (b *userBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var pageToken string
-	bag, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: resourceTypeUser.Id})
+	bag, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: userResourceType.Id})
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	usersResponse, err := o.client.ListUsers(ctx, &notion.PaginationQuery{PageSize: resourcePageSize, StartCursor: bag.PageToken()})
+	usersResponse, err := b.client.ListUsers(ctx, &notion.PaginationQuery{PageSize: resourcePageSize, StartCursor: bag.PageToken()})
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("notion-connector: failed to list users: %w", err)
 	}
@@ -85,7 +89,7 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, to
 
 	var rv []*v2.Resource
 	for _, user := range usersResponse.Results {
-		ur, err := userResource(ctx, user)
+		ur, err := userResource(user)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -95,17 +99,153 @@ func (o *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, to
 	return rv, pageToken, nil, nil
 }
 
-func (o *userResourceType) Entitlements(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (b *userBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
 
-func (o *userResourceType) Grants(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (b *userBuilder) Grants(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
 
-func userBuilder(client *notion.Client) *userResourceType {
-	return &userResourceType{
-		resourceType: resourceTypeUser,
-		client:       client,
+func (b *userBuilder) CreateAccountCapabilityDetails(_ context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return &v2.CredentialDetailsAccountProvisioning{
+		SupportedCredentialOptions: []v2.CapabilityDetailCredentialOption{
+			v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD,
+		},
+		PreferredCredentialOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD,
+	}, nil, nil
+}
+
+func (b *userBuilder) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	_ *v2.CredentialOptions,
+) (connectorbuilder.CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	newUserInfo, err := createNewUserData(accountInfo)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	newUser, err := b.scimClient.CreateUser(ctx, newUserInfo)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	userResource, err := parseIntoUserResource(*newUser)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	caResponse := &v2.CreateAccountResponse_SuccessResult{
+		Resource: userResource,
+	}
+
+	return caResponse, []*v2.PlaintextData{}, nil, nil
+}
+
+func createNewUserData(accountInfo *v2.AccountInfo) (*client.User, error) {
+	pMap := accountInfo.Profile.AsMap()
+
+	firstName, ok := pMap["first_name"].(string)
+	if !ok || firstName == "" {
+		return nil, fmt.Errorf("first name is required")
+	}
+
+	lastName, ok := pMap["last_name"].(string)
+	if !ok || lastName == "" {
+		return nil, fmt.Errorf("last name is required")
+	}
+
+	email, ok := pMap["email"].(string)
+	if !ok || email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+
+	newUser := &client.User{
+		Schemas:  []string{client.DefaultUserSchema},
+		UserName: email,
+		Name: struct {
+			GivenName  string `json:"givenName"`
+			FamilyName string `json:"familyName"`
+			Formatted  string `json:"formatted"`
+		}{
+			GivenName:  firstName,
+			FamilyName: lastName,
+			Formatted:  fmt.Sprintf("%s %s", firstName, lastName),
+		},
+		Active: true,
+		Emails: []struct {
+			Primary bool   `json:"primary"`
+			Value   string `json:"value"`
+			Type    string `json:"type"`
+		}{
+			{
+				Primary: true,
+				Value:   email,
+				Type:    "Primary",
+			},
+		},
+	}
+
+	return newUser, nil
+}
+
+func (b *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
+	if b.scimClient == nil {
+		return nil, fmt.Errorf("baton-notion: scim client not initialized")
+	}
+
+	userID := principal.Resource
+
+	err := b.scimClient.DeleteUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	deletedUser, err := b.scimClient.GetUser(ctx, userID)
+	if err == nil || status.Code(err) != codes.NotFound || deletedUser != nil {
+		return nil, fmt.Errorf("error deleting user. User %s still exists", userID)
+	}
+
+	return nil, nil
+}
+
+func parseIntoUserResource(user client.User) (*v2.Resource, error) {
+	userStatus := v2.UserTrait_Status_STATUS_DISABLED
+	profile := map[string]interface{}{
+		"first_name": user.Name.GivenName,
+		"last_name":  user.Name.FamilyName,
+		"email":      user.UserName,
+	}
+
+	if user.Active {
+		userStatus = v2.UserTrait_Status_STATUS_ENABLED
+	}
+
+	userTraitOptions := []rs.UserTraitOption{
+		rs.WithStatus(userStatus),
+		rs.WithUserProfile(profile),
+		rs.WithUserLogin(user.UserName),
+		rs.WithEmail(user.UserName, true),
+	}
+
+	// Since the name is different
+	ret, err := rs.NewUserResource(
+		user.Name.Formatted,
+		userResourceType,
+		user.ID,
+		userTraitOptions,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func newUserBuilder(client *notion.Client, scimClient *client.ScimClient) *userBuilder {
+	return &userBuilder{
+		scimClient: scimClient,
+		client:     client,
 	}
 }

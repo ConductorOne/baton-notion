@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	notionScim "github.com/conductorone/baton-notion/pkg/notion"
+	notionScim "github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -13,53 +13,69 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
-var (
-	resourceTypeUser = &v2.ResourceType{
-		Id:          "user",
-		DisplayName: "User",
-		Traits: []v2.ResourceType_Trait{
-			v2.ResourceType_TRAIT_USER,
-		},
-		Annotations: annotationsForUserResourceType(),
-	}
-	resourceTypeGroup = &v2.ResourceType{
-		Id:          "group",
-		DisplayName: "Group",
-		Traits: []v2.ResourceType_Trait{
-			v2.ResourceType_TRAIT_GROUP,
-		},
-	}
-)
-
-type Notion struct {
+type Connector struct {
 	client     *notion.Client
 	scimClient *notionScim.ScimClient
 }
 
-func (nt *Notion) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
-	if nt.scimClient != nil {
+func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
+	if d.scimClient != nil {
 		return []connectorbuilder.ResourceSyncer{
-			userBuilder(nt.client),
-			groupBuilder(nt.client, nt.scimClient),
+			newUserBuilder(d.client, d.scimClient),
+			newGroupBuilder(d.client, d.scimClient),
 		}
 	}
 
 	return []connectorbuilder.ResourceSyncer{
-		userBuilder(nt.client),
+		newUserBuilder(d.client, nil),
 	}
 }
 
 // Metadata returns metadata about the connector.
-func (nt *Notion) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
+func (d *Connector) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Notion",
 		Description: "Connector syncing users and groups from Notion",
+		AccountCreationSchema: &v2.ConnectorAccountCreationSchema{
+			FieldMap: map[string]*v2.ConnectorAccountCreationSchema_Field{
+				"first_name": {
+					DisplayName: "First Name",
+					Required:    true,
+					Description: "First name of the person who will own the user.",
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Placeholder: "John",
+					Order:       1,
+				},
+				"last_name": {
+					DisplayName: "Last Name",
+					Required:    true,
+					Description: "Last name of the person who will own the user.",
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Placeholder: "Doe",
+					Order:       2,
+				},
+				"email": {
+					DisplayName: "Email",
+					Required:    true,
+					Description: "This email will be used as the login for the user.",
+					Field: &v2.ConnectorAccountCreationSchema_Field_StringField{
+						StringField: &v2.ConnectorAccountCreationSchema_StringField{},
+					},
+					Placeholder: "john.doe@example.com",
+					Order:       3,
+				},
+			},
+		},
 	}, nil
 }
 
 // Validate hits the Notion API to validate that the API key passed works.
-func (nt *Notion) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, err := nt.client.FindUserByID(ctx, "me")
+func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
+	_, err := d.client.FindUserByID(ctx, "me")
 	if err != nil {
 		return nil, fmt.Errorf("notion-connector: failed to authenticate. Error: %w", err)
 	}
@@ -68,7 +84,7 @@ func (nt *Notion) Validate(ctx context.Context) (annotations.Annotations, error)
 }
 
 // New returns the Notion connector.
-func New(ctx context.Context, apiKey string, scimToken string) (*Notion, error) {
+func New(ctx context.Context, apiKey string, scimToken string) (*Connector, error) {
 	var scimClient *notionScim.ScimClient
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
@@ -76,10 +92,13 @@ func New(ctx context.Context, apiKey string, scimToken string) (*Notion, error) 
 	}
 
 	if scimToken != "" {
-		scimClient = notionScim.NewScimClient(scimToken, httpClient)
+		scimClient, err = notionScim.New(ctx, scimToken)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return &Notion{
+	return &Connector{
 		client:     notion.NewClient(apiKey, notion.WithHTTPClient(httpClient)),
 		scimClient: scimClient,
 	}, nil
