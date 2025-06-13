@@ -48,7 +48,6 @@ func groupResource(group *client.Group) (*v2.Resource, error) {
 }
 
 func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-
 	bag, pageToken, err := getToken(token, groupResourceType)
 	if err != nil {
 		return nil, "", nil, err

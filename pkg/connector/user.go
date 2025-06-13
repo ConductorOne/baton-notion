@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	notionScim "github.com/conductorone/baton-notion/pkg/client"
+	"github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/dstotijn/go-notion"
@@ -16,7 +17,7 @@ import (
 )
 
 type userBuilder struct {
-	scimClient *notionScim.ScimClient
+	scimClient *client.ScimClient
 	client     *notion.Client
 }
 
@@ -106,6 +107,89 @@ func (b *userBuilder) Grants(_ context.Context, _ *v2.Resource, _ *pagination.To
 	return nil, "", nil, nil
 }
 
+func (b *userBuilder) CreateAccountCapabilityDetails(_ context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return &v2.CredentialDetailsAccountProvisioning{
+		SupportedCredentialOptions: []v2.CapabilityDetailCredentialOption{
+			v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD,
+		},
+		PreferredCredentialOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD,
+	}, nil, nil
+}
+
+func (b *userBuilder) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	_ *v2.CredentialOptions,
+) (connectorbuilder.CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	newUserInfo, err := createNewUserData(accountInfo)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	newUser, err := b.scimClient.CreateUser(ctx, newUserInfo)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	userResource, err := parseIntoUserResource(*newUser)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	caResponse := &v2.CreateAccountResponse_SuccessResult{
+		Resource: userResource,
+	}
+
+	return caResponse, []*v2.PlaintextData{}, nil, nil
+}
+
+func createNewUserData(accountInfo *v2.AccountInfo) (*client.User, error) {
+	pMap := accountInfo.Profile.AsMap()
+
+	firstName, ok := pMap["first_name"].(string)
+	if !ok || firstName == "" {
+		return nil, fmt.Errorf("first name is required")
+	}
+
+	lastName, ok := pMap["last_name"].(string)
+	if !ok || lastName == "" {
+		return nil, fmt.Errorf("last name is required")
+	}
+
+	email, ok := pMap["email"].(string)
+	if !ok || email == "" {
+		return nil, fmt.Errorf("email is required")
+	}
+
+	newUser := &client.User{
+		Schemas:  []string{client.DefaultUserSchema},
+		UserName: email,
+		Name: struct {
+			GivenName  string `json:"givenName"`
+			FamilyName string `json:"familyName"`
+			Formatted  string `json:"formatted"`
+		}{
+			GivenName:  firstName,
+			FamilyName: lastName,
+			Formatted:  fmt.Sprintf("%s %s", firstName, lastName),
+		},
+		Active: true,
+		Emails: []struct {
+			Primary bool   `json:"primary"`
+			Value   string `json:"value"`
+			Type    string `json:"type"`
+		}{
+			{
+				Primary: true,
+				Value:   email,
+				Type:    "Primary",
+			},
+		},
+	}
+
+	return newUser, nil
+}
+
 func (b *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
 	if b.scimClient == nil {
 		return nil, fmt.Errorf("baton-notion: scim client not initialized")
@@ -126,7 +210,40 @@ func (b *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (ann
 	return nil, nil
 }
 
-func newUserBuilder(client *notion.Client, scimClient *notionScim.ScimClient) *userBuilder {
+func parseIntoUserResource(user client.User) (*v2.Resource, error) {
+	userStatus := v2.UserTrait_Status_STATUS_DISABLED
+	profile := map[string]interface{}{
+		"first_name": user.Name.GivenName,
+		"last_name":  user.Name.FamilyName,
+		"email":      user.UserName,
+	}
+
+	if user.Active {
+		userStatus = v2.UserTrait_Status_STATUS_ENABLED
+	}
+
+	userTraitOptions := []rs.UserTraitOption{
+		rs.WithStatus(userStatus),
+		rs.WithUserProfile(profile),
+		rs.WithUserLogin(user.UserName),
+		rs.WithEmail(user.UserName, true),
+	}
+
+	// Since the name is different
+	ret, err := rs.NewUserResource(
+		user.Name.Formatted,
+		userResourceType,
+		user.ID,
+		userTraitOptions,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func newUserBuilder(client *notion.Client, scimClient *client.ScimClient) *userBuilder {
 	return &userBuilder{
 		scimClient: scimClient,
 		client:     client,

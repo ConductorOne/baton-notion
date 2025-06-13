@@ -21,8 +21,9 @@ type Member struct {
 }
 
 type User struct {
+	ID       string   `json:"id"`
 	Schemas  []string `json:"schemas"`
-	UserName string   `json:"userName"`
+	UserName string   `json:"userName"` // Username corresponds to the actual email of the account.
 	Name     struct {
 		GivenName  string `json:"givenName"`
 		FamilyName string `json:"familyName"`

@@ -13,7 +13,7 @@ import (
 
 const (
 	baseUrl           = "https://www.notion.so/scim/v2"
-	defaultUserSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
+	DefaultUserSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
 )
 
 type ScimClient struct {
@@ -72,8 +72,19 @@ func (c *ScimClient) GetUser(ctx context.Context, userID string) (*User, error) 
 	return userData, nil
 }
 
+func (c *ScimClient) CreateUser(ctx context.Context, user *User) (*User, error) {
+	var newUser *User
+	requestURL := fmt.Sprint(baseUrl, "/Users")
+
+	_, err := c.doRequest(ctx, http.MethodPost, requestURL, &newUser, user)
+	if err != nil {
+		return nil, err
+	}
+
+	return newUser, nil
+}
+
 func (c *ScimClient) DeleteUser(ctx context.Context, userID string) error {
-	// DELETE <https://api.notion.com/scim/v2/Users/><id>
 	requestURL := fmt.Sprint(baseUrl, "/Users/", userID)
 
 	_, err := c.doRequest(ctx, http.MethodDelete, requestURL, nil, nil)
@@ -83,23 +94,6 @@ func (c *ScimClient) DeleteUser(ctx context.Context, userID string) error {
 
 	return nil
 }
-
-//func (c *ScimClient) doRequest(req *http.Request, resType interface{}) error {
-//	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.scimToken))
-//	req.Header.Add("accept", "application/json")
-//	resp, err := c.httpClient.Do(req)
-//	if err != nil {
-//		return err
-//	}
-//
-//	defer resp.Body.Close()
-//
-//	if err := json.NewDecoder(resp.Body).Decode(&resType); err != nil {
-//		return err
-//	}
-//
-//	return nil
-//}
 
 func (c *ScimClient) doRequest(
 	ctx context.Context,
