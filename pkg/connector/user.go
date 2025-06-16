@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -11,92 +10,57 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/dstotijn/go-notion"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type userBuilder struct {
-	scimClient *client.ScimClient
-	client     *notion.Client
+	client *client.NotionClient
 }
 
 func (b *userBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return userResourceType
 }
 
-// Create a new connector resource for a Notion user.
-func userResource(user notion.User) (*v2.Resource, error) {
-	names := strings.SplitN(user.Name, " ", 2)
-	var firstName, lastName, email string
-
-	switch len(names) {
-	case 1:
-		firstName = names[0]
-	case 2:
-		firstName = names[0]
-		lastName = names[1]
-	}
-
-	if user.Person != nil {
-		email = user.Person.Email
-	}
-
-	profile := map[string]interface{}{
-		"first_name": firstName,
-		"last_name":  lastName,
-		"login":      email,
-		"user_id":    user.ID,
-	}
-
-	userTraitOptions := []rs.UserTraitOption{
-		rs.WithUserProfile(profile),
-		rs.WithEmail(email, true),
-		rs.WithStatus(v2.UserTrait_Status_STATUS_ENABLED),
-	}
-
-	ret, err := rs.NewUserResource(
-		user.Name,
-		userResourceType,
-		user.ID,
-		userTraitOptions,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return ret, nil
-}
-
 func (b *userBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-	var pageToken string
-	bag, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: userResourceType.Id})
+	var userResources []*v2.Resource
+
+	bag, pageToken, err := getToken(token, groupResourceType)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	usersResponse, err := b.client.ListUsers(ctx, &notion.PaginationQuery{PageSize: resourcePageSize, StartCursor: bag.PageToken()})
+	users, nextPageToken, err := b.client.GetUsers(
+		ctx,
+		client.PaginationOptions{
+			StartIndex: pageToken,
+			PerPage:    100,
+		},
+	)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("notion-connector: failed to list users: %w", err)
+		return nil, "", nil, fmt.Errorf("baton-notion: failed to list groups: %w", err)
 	}
 
-	if usersResponse.HasMore {
-		pageToken, err = bag.NextToken(*usersResponse.NextCursor)
+	for _, user := range users {
+		newUserResource, err := parseIntoUserResource(user)
 		if err != nil {
 			return nil, "", nil, err
 		}
+		userResources = append(userResources, newUserResource)
 	}
 
-	var rv []*v2.Resource
-	for _, user := range usersResponse.Results {
-		ur, err := userResource(user)
-		if err != nil {
-			return nil, "", nil, err
-		}
-		rv = append(rv, ur)
+	err = bag.Next(nextPageToken)
+	if err != nil {
+		return nil, "", nil, err
 	}
 
-	return rv, pageToken, nil, nil
+	nextPageToken, err = bag.Marshal()
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return userResources, nextPageToken, nil, nil
 }
 
 func (b *userBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
@@ -126,7 +90,7 @@ func (b *userBuilder) CreateAccount(
 		return nil, nil, nil, err
 	}
 
-	newUser, err := b.scimClient.CreateUser(ctx, newUserInfo)
+	newUser, err := b.client.CreateUser(ctx, newUserInfo)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -191,18 +155,14 @@ func createNewUserData(accountInfo *v2.AccountInfo) (*client.User, error) {
 }
 
 func (b *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (annotations.Annotations, error) {
-	if b.scimClient == nil {
-		return nil, fmt.Errorf("baton-notion: scim client not initialized")
-	}
-
 	userID := principal.Resource
 
-	err := b.scimClient.DeleteUser(ctx, userID)
+	err := b.client.DeleteUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	deletedUser, err := b.scimClient.GetUser(ctx, userID)
+	deletedUser, err := b.client.GetUser(ctx, userID)
 	if err == nil || status.Code(err) != codes.NotFound || deletedUser != nil {
 		return nil, fmt.Errorf("error deleting user. User %s still exists", userID)
 	}
@@ -243,9 +203,8 @@ func parseIntoUserResource(user client.User) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func newUserBuilder(client *notion.Client, scimClient *client.ScimClient) *userBuilder {
+func newUserBuilder(scimClient *client.NotionClient) *userBuilder {
 	return &userBuilder{
-		scimClient: scimClient,
-		client:     client,
+		client: scimClient,
 	}
 }

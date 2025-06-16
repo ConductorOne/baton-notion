@@ -7,25 +7,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 )
 
-var resourcePageSize = 50
-
-func parsePageToken(i string, resourceID *v2.ResourceId) (*pagination.Bag, error) {
-	b := &pagination.Bag{}
-	err := b.Unmarshal(i)
-	if err != nil {
-		return nil, err
-	}
-
-	if b.Current() == nil {
-		b.Push(pagination.PageState{
-			ResourceTypeID: resourceID.ResourceType,
-			ResourceID:     resourceID.Resource,
-		})
-	}
-
-	return b, nil
-}
-
 func getToken(pToken *pagination.Token, resourceType *v2.ResourceType) (*pagination.Bag, int, error) {
 	var pageToken int
 	_, bag, err := unmarshalSkipToken(pToken)

@@ -11,14 +11,12 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/dstotijn/go-notion"
 )
 
 const memberEntitlement = "member"
 
 type groupBuilder struct {
-	scimClient *client.ScimClient
-	client     *notion.Client
+	client *client.NotionClient
 }
 
 func (b *groupBuilder) ResourceType(_ context.Context) *v2.ResourceType {
@@ -53,7 +51,7 @@ func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagina
 		return nil, "", nil, err
 	}
 
-	groups, nextPageToken, err := b.scimClient.GetGroups(
+	groups, nextPageToken, err := b.client.GetGroups(
 		ctx,
 		client.PaginationOptions{
 			StartIndex: pageToken,
@@ -103,34 +101,27 @@ func (b *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ 
 }
 
 func (b *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	var rv []*v2.Grant
+	var groupGrants []*v2.Grant
 
-	group, err := b.scimClient.GetGroup(ctx, resource.Id.Resource)
+	group, err := b.client.GetGroup(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
 	for _, member := range group.Members {
-		memberCopy := member
-		user, err := b.client.FindUserByID(ctx, memberCopy.Value)
-		if err != nil {
-			return nil, "", nil, err
-		}
-		ur, err := userResource(user)
-		if err != nil {
-			return nil, "", nil, err
+		userId := &v2.ResourceId{
+			ResourceType: userResourceType.Id,
+			Resource:     member.Value,
 		}
 
-		grant := grant.NewGrant(resource, memberEntitlement, ur.Id)
-		rv = append(rv, grant)
+		groupGrants = append(groupGrants, grant.NewGrant(resource, memberEntitlement, userId))
 	}
 
-	return rv, "", nil, nil
+	return groupGrants, "", nil, nil
 }
 
-func newGroupBuilder(client *notion.Client, scimClient *client.ScimClient) *groupBuilder {
+func newGroupBuilder(scimClient *client.NotionClient) *groupBuilder {
 	return &groupBuilder{
-		scimClient: scimClient,
-		client:     client,
+		client: scimClient,
 	}
 }

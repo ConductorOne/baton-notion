@@ -20,10 +20,17 @@ type Member struct {
 	Type  string `json:"type"`
 }
 
+type UsersResponse struct {
+	TotalResults int64  `json:"totalResults"`
+	Resources    []User `json:"Resources"`
+	StartIndex   int64  `json:"startIndex"`
+	ItemsPerPage int64  `json:"itemsPerPage"`
+}
+
 type User struct {
 	ID       string   `json:"id"`
 	Schemas  []string `json:"schemas"`
-	UserName string   `json:"userName"` // Username corresponds to the actual email of the account.
+	UserName string   `json:"userName"` // Username corresponds to the email of the account.
 	Name     struct {
 		GivenName  string `json:"givenName"`
 		FamilyName string `json:"familyName"`
