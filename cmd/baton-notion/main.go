@@ -48,10 +48,9 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		return nil, err
 	}
 
-	apiKey := v.GetString(apiKeyFlag)
 	scimToken := v.GetString(scimTokenFlag)
 
-	cb, err := connector.New(ctx, apiKey, scimToken)
+	cb, err := connector.New(ctx, scimToken)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
