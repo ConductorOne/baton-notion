@@ -12,18 +12,19 @@ import (
 )
 
 const (
-	baseUrl           = "https://www.notion.so/scim/v2"
+	defaultBaseURL    = "https://www.notion.so/scim/v2"
 	DefaultUserSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
 )
 
 type NotionClient struct {
 	client    *uhttp.BaseHttpClient
 	scimToken string
+	baseURL   string
 }
 
 func (c *NotionClient) GetUsers(ctx context.Context, pageOps PaginationOptions) ([]User, string, error) {
 	var nextPage string
-	requestURL := fmt.Sprint(baseUrl, "/Users")
+	requestURL := fmt.Sprint(c.baseURL, "/Users")
 
 	var res UsersResponse
 	_, err := c.doRequest(
@@ -49,7 +50,7 @@ func (c *NotionClient) GetUsers(ctx context.Context, pageOps PaginationOptions) 
 // GetGroups returns all Notion groups.
 func (c *NotionClient) GetGroups(ctx context.Context, pageOps PaginationOptions) ([]Group, string, error) {
 	var nextPage string
-	requestURL := fmt.Sprint(baseUrl, "/Groups")
+	requestURL := fmt.Sprint(c.baseURL, "/Groups")
 
 	var res GroupsResponse
 	_, err := c.doRequest(
@@ -74,7 +75,7 @@ func (c *NotionClient) GetGroups(ctx context.Context, pageOps PaginationOptions)
 
 // GetGroup returns group details by group ID.
 func (c *NotionClient) GetGroup(ctx context.Context, groupId string) (Group, error) {
-	requestURL := fmt.Sprint(baseUrl, "/Groups/", groupId)
+	requestURL := fmt.Sprint(c.baseURL, "/Groups/", groupId)
 
 	var groupResponse Group
 	_, err := c.doRequest(ctx, http.MethodGet, requestURL, &groupResponse, nil)
@@ -87,7 +88,7 @@ func (c *NotionClient) GetGroup(ctx context.Context, groupId string) (Group, err
 
 func (c *NotionClient) GetUser(ctx context.Context, userID string) (*User, error) {
 	var userData *User
-	requestURL := fmt.Sprint(baseUrl, "/Users/", userID)
+	requestURL := fmt.Sprint(c.baseURL, "/Users/", userID)
 
 	_, err := c.doRequest(ctx, http.MethodGet, requestURL, &userData, nil)
 	if err != nil {
@@ -99,7 +100,7 @@ func (c *NotionClient) GetUser(ctx context.Context, userID string) (*User, error
 
 func (c *NotionClient) CreateUser(ctx context.Context, user *User) (*User, error) {
 	var newUser *User
-	requestURL := fmt.Sprint(baseUrl, "/Users")
+	requestURL := fmt.Sprint(c.baseURL, "/Users")
 
 	_, err := c.doRequest(ctx, http.MethodPost, requestURL, &newUser, user)
 	if err != nil {
@@ -110,7 +111,7 @@ func (c *NotionClient) CreateUser(ctx context.Context, user *User) (*User, error
 }
 
 func (c *NotionClient) DeleteUser(ctx context.Context, userID string) error {
-	requestURL := fmt.Sprint(baseUrl, "/Users/", userID)
+	requestURL := fmt.Sprint(c.baseURL, "/Users/", userID)
 
 	_, err := c.doRequest(ctx, http.MethodDelete, requestURL, nil, nil)
 	if err != nil {
@@ -178,7 +179,7 @@ func (c *NotionClient) doRequest(
 	return resp.Header, nil
 }
 
-func New(ctx context.Context, scimToken string) (*NotionClient, error) {
+func New(ctx context.Context, scimToken string, baseURL string) (*NotionClient, error) {
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
 	if err != nil {
 		return nil, err
@@ -189,9 +190,14 @@ func New(ctx context.Context, scimToken string) (*NotionClient, error) {
 		return nil, err
 	}
 
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+
 	notionClient := NotionClient{
 		client:    cli,
 		scimToken: scimToken,
+		baseURL:   baseURL,
 	}
 
 	return &notionClient, nil

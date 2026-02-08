@@ -7,6 +7,7 @@ import (
 
 const (
 	scimTokenFlag = "scim-token"
+	baseURLFlag   = "base-url"
 )
 
 var (
@@ -15,8 +16,12 @@ var (
 		field.WithRequired(false),
 		field.WithDescription("The Notion SCIM token used to connect to the Notion SCIM API. ($BATON_SCIM_TOKEN)"),
 	)
+	BaseURLField = field.StringField(
+		baseURLFlag,
+		field.WithDescription("Override the Notion SCIM API URL (for testing)"),
+	)
 
-	ConfigurationFields = []field.SchemaField{SCIMTokenField}
+	ConfigurationFields = []field.SchemaField{SCIMTokenField, BaseURLField}
 )
 
 // ValidateConfig is run after the configuration is loaded, and should return an
