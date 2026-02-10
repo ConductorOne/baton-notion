@@ -81,6 +81,18 @@
       }
     },
     {
+      "name": "http-timeout-seconds",
+      "description": "HTTP client timeout in seconds (max 1800)",
+      "isOps": true,
+      "intField": {
+        "defaultValue": "300",
+        "rules": {
+          "lte": "1800",
+          "gte": "1"
+        }
+      }
+    },
+    {
       "name": "scim-token",
       "description": "The Notion SCIM token used to connect to the Notion SCIM API. ($BATON_SCIM_TOKEN)",
       "stringField": {
