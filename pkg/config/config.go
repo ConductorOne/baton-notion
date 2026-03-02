@@ -12,7 +12,7 @@ var (
 		field.WithDisplayName("SCIM Token"),
 		field.WithDescription("The Notion SCIM token used to connect to the Notion SCIM API."),
 		field.WithIsSecret(true),
-		field.WithRequired(false),
+		field.WithRequired(true),
 	)
 
 	ConfigurationFields = []field.SchemaField{
