@@ -19,7 +19,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "go.mod"
 
       - name: Build
         run: go build -o connector ./cmd/baton-notion
@@ -34,7 +34,7 @@ jobs:
         uses: EndBug/add-and-commit@v9
         with:
           default_author: github_actions
-          message: 'Updating baton config schema and capabilities.'
+          message: "Updating baton config schema and capabilities."
           add: |
             config_schema.json
             baton_capabilities.json
