@@ -68,8 +68,8 @@ func (d *Connector) Validate(_ context.Context) (annotations.Annotations, error)
 }
 
 // New returns the Notion connector.
-func New(ctx context.Context, scimToken string) (*Connector, error) {
-	scimClient, err := client.New(ctx, scimToken)
+func New(ctx context.Context, scimToken string, baseURL string) (*Connector, error) {
+	scimClient, err := client.New(ctx, scimToken, baseURL)
 	if err != nil {
 		return nil, err
 	}
