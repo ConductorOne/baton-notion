@@ -98,6 +98,11 @@
       "stringField": {
         "rules": {}
       }
+    },
+    {
+      "name": "base-url",
+      "description": "Override the Notion SCIM API URL (for testing)",
+      "stringField": {}
     }
   ]
 }
