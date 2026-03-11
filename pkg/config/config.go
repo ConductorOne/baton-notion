@@ -9,7 +9,7 @@ import (
 var (
 	ScimTokenField = field.StringField(
 		"scim-token",
-		field.WithDisplayName("SCIM Token"),
+		field.WithDisplayName("Notion SCIM API token"),
 		field.WithDescription("The Notion SCIM token used to connect to the Notion SCIM API."),
 		field.WithIsSecret(true),
 		field.WithRequired(true),
