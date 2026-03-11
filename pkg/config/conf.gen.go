@@ -5,6 +5,7 @@ import "reflect"
 
 type Notion struct {
 	ScimToken string `mapstructure:"scim-token"`
+	BaseUrl string `mapstructure:"base-url"`
 }
 
 func (c *Notion) findFieldByTag(tagValue string) (any, bool) {

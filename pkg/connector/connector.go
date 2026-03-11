@@ -71,7 +71,7 @@ func (d *Connector) Validate(_ context.Context) (annotations.Annotations, error)
 
 // New returns the Notion connector.
 func New(ctx context.Context, cfg *config.Notion, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
-	scimClient, err := client.New(ctx, cfg.ScimToken, cfg.BaseURL)
+	scimClient, err := client.New(ctx, cfg.ScimToken, cfg.BaseUrl)
 	if err != nil {
 		return nil, nil, err
 	}

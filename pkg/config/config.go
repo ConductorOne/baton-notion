@@ -15,8 +15,16 @@ var (
 		field.WithRequired(true),
 	)
 
+	BaseURLField = field.StringField(
+		"base-url",
+		field.WithDescription("Override the Notion SCIM API URL (for testing)"),
+		field.WithHidden(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
+	)
+
 	ConfigurationFields = []field.SchemaField{
 		ScimTokenField,
+		BaseURLField,
 	}
 
 	Config = field.NewConfiguration(
