@@ -94,15 +94,18 @@
     },
     {
       "name": "scim-token",
-      "description": "The Notion SCIM token used to connect to the Notion SCIM API. ($BATON_SCIM_TOKEN)",
+      "displayName": "Notion SCIM API token",
+      "description": "The Notion SCIM token used to connect to the Notion SCIM API.",
+      "isRequired": true,
+      "isSecret": true,
       "stringField": {
-        "rules": {}
+        "rules": {
+          "isRequired": true
+        }
       }
-    },
-    {
-      "name": "base-url",
-      "description": "Override the Notion SCIM API URL (for testing)",
-      "stringField": {}
     }
-  ]
+  ],
+  "displayName": "Notion",
+  "helpUrl": "/docs/baton/notion",
+  "iconUrl": "/static/app-icons/notion.svg"
 }
