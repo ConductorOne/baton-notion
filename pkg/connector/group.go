@@ -6,8 +6,6 @@ import (
 
 	"github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -45,10 +43,10 @@ func groupResource(group *client.Group) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-	bag, pageToken, err := getToken(token, groupResourceType)
+func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+	bag, pageToken, err := getToken(attrs.PageToken.Token, groupResourceType)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	groups, nextPageToken, err := b.client.GetGroups(
@@ -59,7 +57,7 @@ func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagina
 		},
 	)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("baton-notion: failed to list groups: %w", err)
+		return nil, nil, fmt.Errorf("baton-notion: failed to list groups: %w", err)
 	}
 
 	var rv []*v2.Resource
@@ -67,25 +65,25 @@ func (b *groupBuilder) List(ctx context.Context, _ *v2.ResourceId, token *pagina
 		groupCopy := group
 		ur, err := groupResource(&groupCopy)
 		if err != nil {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 		rv = append(rv, ur)
 	}
 
 	err = bag.Next(nextPageToken)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	nextPageToken, err = bag.Marshal()
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	return rv, nextPageToken, nil, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextPageToken}, nil
 }
 
-func (b *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (b *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 
 	assigmentOptions := []ent.EntitlementOption{
@@ -97,15 +95,15 @@ func (b *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ 
 	en := ent.NewAssignmentEntitlement(resource, memberEntitlement, assigmentOptions...)
 	rv = append(rv, en)
 
-	return rv, "", nil, nil
+	return rv, nil, nil
 }
 
-func (b *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (b *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var groupGrants []*v2.Grant
 
 	group, err := b.client.GetGroup(ctx, resource.Id.Resource)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	for _, member := range group.Members {
@@ -117,7 +115,7 @@ func (b *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, _ *pag
 		groupGrants = append(groupGrants, grant.NewGrant(resource, memberEntitlement, userId))
 	}
 
-	return groupGrants, "", nil, nil
+	return groupGrants, nil, nil
 }
 
 func newGroupBuilder(scimClient *client.NotionClient) *groupBuilder {

@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/conductorone/baton-notion/pkg/client"
+	"github.com/conductorone/baton-notion/pkg/config"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
@@ -13,8 +15,8 @@ type Connector struct {
 	client *client.NotionClient
 }
 
-func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client),
 		newGroupBuilder(d.client),
 	}
@@ -68,13 +70,13 @@ func (d *Connector) Validate(_ context.Context) (annotations.Annotations, error)
 }
 
 // New returns the Notion connector.
-func New(ctx context.Context, scimToken string, baseURL string) (*Connector, error) {
-	scimClient, err := client.New(ctx, scimToken, baseURL)
+func New(ctx context.Context, cfg *config.Notion, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
+	scimClient, err := client.New(ctx, cfg.ScimToken, cfg.BaseUrl)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &Connector{
 		client: scimClient,
-	}, nil
+	}, nil, nil
 }
