@@ -8,11 +8,19 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	sdkGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// profileKeyWorkspaceRole stashes the Notion workspace role on the user
+// resource during List so Grants can emit role grants without an extra
+// GetUser call per user.
+const profileKeyWorkspaceRole = "workspace_role"
 
 type userBuilder struct {
 	client *client.NotionClient
@@ -68,8 +76,49 @@ func (b *userBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncO
 	return nil, nil, nil
 }
 
-func (b *userBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	return nil, nil, nil
+// Grants emits one role grant per user, read from the stashed profile field.
+// A role value that is not one of the four documented Notion roles is logged
+// at Warn and the grant is skipped — this surfaces silent drift (e.g. Notion
+// introducing a new tier) instead of dropping users invisibly.
+func (b *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	role := workspaceRoleFromResource(resource)
+	if role == "" {
+		return nil, nil, nil
+	}
+	if !isSupportedRole(role) {
+		ctxzap.Extract(ctx).Warn(
+			"baton-notion: skipping role grant for unknown role value",
+			zap.String("user_id", resource.Id.Resource),
+			zap.String("unknown_role", role),
+		)
+		return nil, nil, nil
+	}
+
+	roleRes := &v2.Resource{Id: &v2.ResourceId{
+		ResourceType: roleResourceType.Id,
+		Resource:     role,
+	}}
+	return []*v2.Grant{sdkGrant.NewGrant(roleRes, assignedEntitlement, resource.Id)}, nil, nil
+}
+
+func workspaceRoleFromResource(resource *v2.Resource) string {
+	ut, err := rs.GetUserTrait(resource)
+	if err != nil || ut == nil {
+		return ""
+	}
+	profile := ut.GetProfile()
+	if profile == nil {
+		return ""
+	}
+	fields := profile.GetFields()
+	if fields == nil {
+		return ""
+	}
+	roleVal, ok := fields[profileKeyWorkspaceRole]
+	if !ok {
+		return ""
+	}
+	return roleVal.GetStringValue()
 }
 
 func (b *userBuilder) CreateAccountCapabilityDetails(_ context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
@@ -173,10 +222,14 @@ func (b *userBuilder) Delete(ctx context.Context, principal *v2.ResourceId) (ann
 
 func parseIntoUserResource(user client.User) (*v2.Resource, error) {
 	userStatus := v2.UserTrait_Status_STATUS_DISABLED
-	profile := map[string]interface{}{
+	profile := map[string]any{
 		"first_name": user.Name.GivenName,
 		"last_name":  user.Name.FamilyName,
 		"email":      user.UserName,
+	}
+
+	if role := user.Role(); role != "" {
+		profile[profileKeyWorkspaceRole] = role
 	}
 
 	if user.Active {

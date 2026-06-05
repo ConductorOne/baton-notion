@@ -23,7 +23,7 @@ func (b *groupBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 
 // Create a new connector resource for a Notion group.
 func groupResource(group *client.Group) (*v2.Resource, error) {
-	profile := map[string]interface{}{
+	profile := map[string]any{
 		"group_id":   group.ID,
 		"group_name": group.DisplayName,
 	}

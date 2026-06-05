@@ -22,6 +22,11 @@ type NotionClient struct {
 	baseURL   string
 }
 
+// GetUsers paginates `GET /scim/v2/Users` using Notion's startIndex/count
+// convention (startIndex is 1-indexed, count caps at 100).
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Users" → `GET /Users`).
 func (c *NotionClient) GetUsers(ctx context.Context, pageOps PaginationOptions) ([]User, string, error) {
 	var nextPage string
 	requestURL := fmt.Sprint(c.baseURL, "/Users")
@@ -47,7 +52,11 @@ func (c *NotionClient) GetUsers(ctx context.Context, pageOps PaginationOptions) 
 	return res.Resources, nextPage, nil
 }
 
-// GetGroups returns all Notion groups.
+// GetGroups paginates `GET /scim/v2/Groups`. Notion caps an unpaginated
+// request at 100 results — we always send startIndex/count for safety.
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Groups" → `GET /Groups`).
 func (c *NotionClient) GetGroups(ctx context.Context, pageOps PaginationOptions) ([]Group, string, error) {
 	var nextPage string
 	requestURL := fmt.Sprint(c.baseURL, "/Groups")
@@ -73,7 +82,11 @@ func (c *NotionClient) GetGroups(ctx context.Context, pageOps PaginationOptions)
 	return res.Resources, nextPage, nil
 }
 
-// GetGroup returns group details by group ID.
+// GetGroup fetches `GET /scim/v2/Groups/{id}`. The id format documented by
+// Notion is a 32-char UUID with hyphens (00000000-0000-0000-0000-000000000000).
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Groups" → `GET /Groups/<id>`).
 func (c *NotionClient) GetGroup(ctx context.Context, groupId string) (Group, error) {
 	requestURL := fmt.Sprint(c.baseURL, "/Groups/", groupId)
 
@@ -86,6 +99,12 @@ func (c *NotionClient) GetGroup(ctx context.Context, groupId string) (Group, err
 	return groupResponse, nil
 }
 
+// GetUser fetches `GET /scim/v2/Users/{id}`. The Notion help center notes
+// that meta.created and meta.lastModified do not reflect meaningful
+// timestamps, which is why this connector does not surface them.
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Users" → `GET /Users/<id>`).
 func (c *NotionClient) GetUser(ctx context.Context, userID string) (*User, error) {
 	var userData *User
 	requestURL := fmt.Sprint(c.baseURL, "/Users/", userID)
@@ -98,6 +117,15 @@ func (c *NotionClient) GetUser(ctx context.Context, userID string) (*User, error
 	return userData, nil
 }
 
+// CreateUser provisions a workspace member via `POST /scim/v2/Users`. If the
+// email already maps to an existing Notion user account, the call adds that
+// account to the workspace; otherwise it creates a fresh Notion user.
+//
+// The Notion help center also notes that the profile-photo property is read
+// only on creation, never on updates.
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Users" → `POST /Users`).
 func (c *NotionClient) CreateUser(ctx context.Context, user *User) (*User, error) {
 	var newUser *User
 	requestURL := fmt.Sprint(c.baseURL, "/Users")
@@ -110,6 +138,44 @@ func (c *NotionClient) CreateUser(ctx context.Context, user *User) (*User, error
 	return newUser, nil
 }
 
+// PatchUserRole updates the workspace role of a user via SCIM PATCH on the
+// Notion role extension. The body uses the value-as-object form (no `path`)
+// because extension paths with `:` separators are inconsistently supported
+// across SCIM implementations.
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Users" → `PATCH /Users/<id>`).
+func (c *NotionClient) PatchUserRole(ctx context.Context, userID, role string) (*User, error) {
+	requestURL, err := url.JoinPath(c.baseURL, "Users", userID)
+	if err != nil {
+		return nil, fmt.Errorf("baton-notion: build PATCH url for user %s: %w", userID, err)
+	}
+
+	body := SCIMPatchRequest{
+		Schemas: []string{SCIMPatchOpSchema},
+		Operations: []SCIMPatchOperation{{
+			Op: "replace",
+			Value: map[string]any{
+				NotionUserExtensionSchema: map[string]string{"role": role},
+			},
+		}},
+	}
+
+	var updated *User
+	if _, err := c.doRequest(ctx, http.MethodPatch, requestURL, &updated, body); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// DeleteUser removes a workspace member via `DELETE /scim/v2/Users/{id}`.
+// Per the Notion help center, this removes the user from the workspace and
+// logs them out of active sessions — it does NOT delete the underlying
+// Notion user account (that must be done manually). Additionally, the
+// workspace owner that issued the SCIM bot token cannot be removed via the API.
+//
+// Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
+// (section "Users" → `DELETE /Users/<id>`).
 func (c *NotionClient) DeleteUser(ctx context.Context, userID string) error {
 	requestURL := fmt.Sprint(c.baseURL, "/Users/", userID)
 
@@ -125,8 +191,8 @@ func (c *NotionClient) doRequest(
 	ctx context.Context,
 	method string,
 	endpointUrl string,
-	res interface{},
-	body interface{},
+	res any,
+	body any,
 	reqOpts ...ReqOpt,
 ) (http.Header, error) {
 	var resp *http.Response
