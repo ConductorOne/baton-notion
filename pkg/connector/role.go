@@ -151,7 +151,7 @@ func (b *roleBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs
 
 // Grant assigns a Notion workspace role to a user. Idempotent: if the user
 // already holds the target role, returns GrantAlreadyExists without issuing
-// a PATCH; a 409 from the PATCH is also treated as success.
+// a PATCH.
 func (b *roleBuilder) Grant(
 	ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement,
 ) ([]*v2.Grant, annotations.Annotations, error) {
