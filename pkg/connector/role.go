@@ -34,6 +34,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	sdkGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -44,12 +45,16 @@ const (
 
 	// defaultRevokedRole is the floor tier a user is downgraded to on revoke.
 	defaultRevokedRole = client.RoleRestrictedMember
+
+	workspaceRoleExclusionGroup = "notion-workspace-role"
 )
 
 type notionRole struct {
 	id          string
 	displayName string
 	description string
+	// order is the exclusion-group privilege hint — higher is more privileged.
+	order uint32
 }
 
 var supportedRoles = []notionRole{
@@ -57,23 +62,36 @@ var supportedRoles = []notionRole{
 		id:          client.RoleOwner,
 		displayName: "Owner",
 		description: "Workspace owner. Has full administrative control, including billing, security, and SCIM token management.",
+		order:       4,
 	},
 	{
 		id:          client.RoleMembershipAdmin,
 		displayName: "Membership Admin",
 		description: "Can add and remove workspace members and manage groups, but cannot access billing or security settings.",
+		order:       3,
 	},
 	{
 		id:          client.RoleMember,
 		displayName: "Member",
 		description: "Standard workspace member with full access to non-administrative workspace content.",
+		order:       2,
 	},
 	{
 		id:          client.RoleRestrictedMember,
 		displayName: "Restricted Member",
 		description: "Workspace member with restricted access — useful for contractors or contributors who should only see explicitly shared pages.",
+		order:       1,
 	},
 }
+
+// rolesByID indexes supportedRoles for O(1) lookups by role ID.
+var rolesByID = func() map[string]notionRole {
+	mapRoles := make(map[string]notionRole, len(supportedRoles))
+	for _, role := range supportedRoles {
+		mapRoles[role.id] = role
+	}
+	return mapRoles
+}()
 
 type roleBuilder struct {
 	client *client.NotionClient
@@ -128,12 +146,11 @@ func (b *roleBuilder) List(_ context.Context, _ *v2.ResourceId, _ rs.SyncOpAttrs
 }
 
 func (b *roleBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	role, ok := rolesByID[resource.Id.Resource]
+
 	description := fmt.Sprintf("Assigned the %s role in Notion", resource.DisplayName)
-	for _, role := range supportedRoles {
-		if role.id == resource.Id.Resource {
-			description = role.description
-			break
-		}
+	if ok {
+		description = role.description
 	}
 
 	options := []ent.EntitlementOption{
@@ -141,6 +158,11 @@ func (b *roleBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ r
 		ent.WithDisplayName(fmt.Sprintf("%s role %s", resource.DisplayName, assignedEntitlement)),
 		ent.WithDescription(description),
 	}
+
+	if ok {
+		options = append(options, ent.WithExclusionGroupOrder(workspaceRoleExclusionGroup, role.order))
+	}
+
 	return []*v2.Entitlement{ent.NewAssignmentEntitlement(resource, assignedEntitlement, options...)}, nil, nil
 }
 
@@ -151,7 +173,9 @@ func (b *roleBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs
 
 // Grant assigns a Notion workspace role to a user. Idempotent: if the user
 // already holds the target role, returns GrantAlreadyExists without issuing
-// a PATCH.
+// a PATCH. Because a user holds exactly one role, granting a new role
+// atomically replaces the previous one — Grant emits GrantReplaced so C1
+// marks the old role grant revoked without a separate Revoke RPC.
 func (b *roleBuilder) Grant(
 	ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement,
 ) ([]*v2.Grant, annotations.Annotations, error) {
@@ -179,17 +203,24 @@ func (b *roleBuilder) Grant(
 		return nil, nil, fmt.Errorf("baton-notion: grant role %s to user %s: %w", targetRole, userID, err)
 	}
 
-	return nil, nil, nil
+	annos := annotations.Annotations{}
+	if previousRole := current.Role(); isSupportedRole(previousRole) {
+		previousResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: roleResourceType.Id, Resource: previousRole}}
+		previousEntitlement := ent.NewAssignmentEntitlement(previousResource, assignedEntitlement)
+		annos = sdkGrant.AppendGrantReplaced(annos, sdkGrant.NewGrantID(principal.Id, previousEntitlement))
+	}
+
+	return nil, annos, nil
 }
 
 // Revoke downgrades the user to restricted_member (the floor tier), since
 // Notion users must always carry a role. Idempotent: returns
 // GrantAlreadyRevoked when the user no longer holds the role, when the user
 // is gone (404), or when the role being revoked is already restricted_member
-// — in the last case, the account must be deprovisioned to fully remove the
-// user from the workspace.
+// (the floor tier has nothing to downgrade to — deprovision the account to
+// remove the user from the workspace).
 func (b *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
-	logger := ctxzap.Extract(ctx)
+	l := ctxzap.Extract(ctx)
 	principal := grant.Principal
 
 	if principal.Id.ResourceType != userResourceType.Id {
@@ -216,7 +247,7 @@ func (b *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 	}
 
 	if targetRole == defaultRevokedRole {
-		logger.Warn(
+		l.Debug(
 			"baton-notion: cannot revoke restricted_member role — it is the floor tier; deprovision the account to remove the user from the workspace",
 			zap.String("user_id", userID),
 			zap.String("role_id", targetRole),
@@ -239,10 +270,6 @@ func newRoleBuilder(scimClient *client.NotionClient) *roleBuilder {
 }
 
 func isSupportedRole(roleID string) bool {
-	for _, role := range supportedRoles {
-		if role.id == roleID {
-			return true
-		}
-	}
-	return false
+	_, ok := rolesByID[roleID]
+	return ok
 }

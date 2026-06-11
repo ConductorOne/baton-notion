@@ -14,6 +14,10 @@ import (
 const (
 	defaultBaseURL    = "https://www.notion.so/scim/v2"
 	DefaultUserSchema = "urn:ietf:params:scim:schemas:core:2.0:User"
+
+	// SCIM resource path segments, joined onto baseURL via url.JoinPath.
+	usersPath  = "Users"
+	groupsPath = "Groups"
 )
 
 type NotionClient struct {
@@ -29,10 +33,13 @@ type NotionClient struct {
 // (section "Users" → `GET /Users`).
 func (c *NotionClient) GetUsers(ctx context.Context, pageOps PaginationOptions) ([]User, string, error) {
 	var nextPage string
-	requestURL := fmt.Sprint(c.baseURL, "/Users")
+	requestURL, err := url.JoinPath(c.baseURL, usersPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("baton-notion: build users URL: %w", err)
+	}
 
 	var res UsersResponse
-	_, err := c.doRequest(
+	_, err = c.doRequest(
 		ctx,
 		http.MethodGet,
 		requestURL,
@@ -59,10 +66,13 @@ func (c *NotionClient) GetUsers(ctx context.Context, pageOps PaginationOptions) 
 // (section "Groups" → `GET /Groups`).
 func (c *NotionClient) GetGroups(ctx context.Context, pageOps PaginationOptions) ([]Group, string, error) {
 	var nextPage string
-	requestURL := fmt.Sprint(c.baseURL, "/Groups")
+	requestURL, err := url.JoinPath(c.baseURL, groupsPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("baton-notion: build groups URL: %w", err)
+	}
 
 	var res GroupsResponse
-	_, err := c.doRequest(
+	_, err = c.doRequest(
 		ctx,
 		http.MethodGet,
 		requestURL,
@@ -88,10 +98,13 @@ func (c *NotionClient) GetGroups(ctx context.Context, pageOps PaginationOptions)
 // Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
 // (section "Groups" → `GET /Groups/<id>`).
 func (c *NotionClient) GetGroup(ctx context.Context, groupId string) (Group, error) {
-	requestURL := fmt.Sprint(c.baseURL, "/Groups/", groupId)
+	requestURL, err := url.JoinPath(c.baseURL, groupsPath, groupId)
+	if err != nil {
+		return Group{}, fmt.Errorf("baton-notion: build group URL for %s: %w", groupId, err)
+	}
 
 	var groupResponse Group
-	_, err := c.doRequest(ctx, http.MethodGet, requestURL, &groupResponse, nil)
+	_, err = c.doRequest(ctx, http.MethodGet, requestURL, &groupResponse, nil)
 	if err != nil {
 		return Group{}, err
 	}
@@ -107,9 +120,12 @@ func (c *NotionClient) GetGroup(ctx context.Context, groupId string) (Group, err
 // (section "Users" → `GET /Users/<id>`).
 func (c *NotionClient) GetUser(ctx context.Context, userID string) (*User, error) {
 	var userData *User
-	requestURL := fmt.Sprint(c.baseURL, "/Users/", userID)
+	requestURL, err := url.JoinPath(c.baseURL, usersPath, userID)
+	if err != nil {
+		return nil, fmt.Errorf("baton-notion: build user URL for %s: %w", userID, err)
+	}
 
-	_, err := c.doRequest(ctx, http.MethodGet, requestURL, &userData, nil)
+	_, err = c.doRequest(ctx, http.MethodGet, requestURL, &userData, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +144,12 @@ func (c *NotionClient) GetUser(ctx context.Context, userID string) (*User, error
 // (section "Users" → `POST /Users`).
 func (c *NotionClient) CreateUser(ctx context.Context, user *User) (*User, error) {
 	var newUser *User
-	requestURL := fmt.Sprint(c.baseURL, "/Users")
+	requestURL, err := url.JoinPath(c.baseURL, usersPath)
+	if err != nil {
+		return nil, fmt.Errorf("baton-notion: build create-user URL: %w", err)
+	}
 
-	_, err := c.doRequest(ctx, http.MethodPost, requestURL, &newUser, user)
+	_, err = c.doRequest(ctx, http.MethodPost, requestURL, &newUser, user)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +165,7 @@ func (c *NotionClient) CreateUser(ctx context.Context, user *User) (*User, error
 // Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
 // (section "Users" → `PATCH /Users/<id>`).
 func (c *NotionClient) PatchUserRole(ctx context.Context, userID, role string) (*User, error) {
-	requestURL, err := url.JoinPath(c.baseURL, "Users", userID)
+	requestURL, err := url.JoinPath(c.baseURL, usersPath, userID)
 	if err != nil {
 		return nil, fmt.Errorf("baton-notion: build PATCH url for user %s: %w", userID, err)
 	}
@@ -177,9 +196,12 @@ func (c *NotionClient) PatchUserRole(ctx context.Context, userID, role string) (
 // Doc: https://www.notion.com/help/provision-users-and-groups-with-scim
 // (section "Users" → `DELETE /Users/<id>`).
 func (c *NotionClient) DeleteUser(ctx context.Context, userID string) error {
-	requestURL := fmt.Sprint(c.baseURL, "/Users/", userID)
+	requestURL, err := url.JoinPath(c.baseURL, usersPath, userID)
+	if err != nil {
+		return fmt.Errorf("baton-notion: build delete-user URL for %s: %w", userID, err)
+	}
 
-	_, err := c.doRequest(ctx, http.MethodDelete, requestURL, nil, nil)
+	_, err = c.doRequest(ctx, http.MethodDelete, requestURL, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -206,9 +228,12 @@ func (c *NotionClient) doRequest(
 		o(urlAddress)
 	}
 
-	opts := []uhttp.RequestOption{uhttp.WithBearerToken(c.scimToken)}
+	opts := []uhttp.RequestOption{
+		uhttp.WithBearerToken(c.scimToken),
+		uhttp.WithAcceptJSONHeader(),
+	}
 	if body != nil {
-		opts = append(opts, uhttp.WithAcceptJSONHeader(), uhttp.WithContentTypeJSONHeader(), uhttp.WithJSONBody(body))
+		opts = append(opts, uhttp.WithContentTypeJSONHeader(), uhttp.WithJSONBody(body))
 	}
 
 	req, err := c.client.NewRequest(
