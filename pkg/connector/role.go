@@ -36,8 +36,6 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	sdkGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
 const (
@@ -46,6 +44,7 @@ const (
 	// defaultRevokedRole is the floor tier a user is downgraded to on revoke.
 	defaultRevokedRole = client.RoleRestrictedMember
 
+	// workspaceRoleExclusionGroup groups the four roles as mutually exclusive (a user holds exactly one).
 	workspaceRoleExclusionGroup = "notion-workspace-role"
 )
 
@@ -160,7 +159,14 @@ func (b *roleBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ r
 	}
 
 	if ok {
-		options = append(options, ent.WithExclusionGroupOrder(workspaceRoleExclusionGroup, role.order))
+		if role.id == defaultRevokedRole {
+			// restricted_member is the mandatory default: C1 grants it as the
+			// fallback when a higher role is revoked, since a Notion user must
+			// always carry a role.
+			options = append(options, ent.WithExclusionGroupDefault(workspaceRoleExclusionGroup, role.order))
+		} else {
+			options = append(options, ent.WithExclusionGroupOrder(workspaceRoleExclusionGroup, role.order))
+		}
 	}
 
 	return []*v2.Entitlement{ent.NewAssignmentEntitlement(resource, assignedEntitlement, options...)}, nil, nil
@@ -215,12 +221,11 @@ func (b *roleBuilder) Grant(
 
 // Revoke downgrades the user to restricted_member (the floor tier), since
 // Notion users must always carry a role. Idempotent: returns
-// GrantAlreadyRevoked when the user no longer holds the role, when the user
-// is gone (404), or when the role being revoked is already restricted_member
-// (the floor tier has nothing to downgrade to — deprovision the account to
-// remove the user from the workspace).
+// GrantAlreadyRevoked when the user no longer holds the role or when the user
+// is gone (404). Revoking restricted_member itself returns an error — it is
+// the minimum Notion workspace role with nothing to downgrade to; the account
+// must be deprovisioned to remove the user from the workspace.
 func (b *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
-	l := ctxzap.Extract(ctx)
 	principal := grant.Principal
 
 	if principal.Id.ResourceType != userResourceType.Id {
@@ -247,12 +252,7 @@ func (b *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 	}
 
 	if targetRole == defaultRevokedRole {
-		l.Debug(
-			"baton-notion: cannot revoke restricted_member role — it is the floor tier; deprovision the account to remove the user from the workspace",
-			zap.String("user_id", userID),
-			zap.String("role_id", targetRole),
-		)
-		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
+		return nil, fmt.Errorf("baton-notion: cannot revoke the %s role from user %s: it is the minimum Notion workspace role; deprovision the account to remove the user", defaultRevokedRole, userID)
 	}
 
 	if _, err := b.client.PatchUserRole(ctx, userID, defaultRevokedRole); err != nil {
