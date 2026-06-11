@@ -1,0 +1,240 @@
+{
+  "info": {
+    "_postman_id": "b4101572-1572-4cxh-b4f1-batonnotionmock",
+    "name": "baton-notion mock SCIM",
+    "description": "Collection covering every endpoint exposed by the in-repo `test-server/` SCIM mock used by the baton-notion connector.\n\n**Setup:** import the companion environment file (`baton-notion-mock.postman_environment.json`) and select it from the top-right dropdown. Then run `go run ./test-server` from the repo root.\n\n**Reference:** https://www.notion.com/help/provision-users-and-groups-with-scim",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{token}}", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Discovery",
+      "item": [
+        {
+          "name": "ServiceProviderConfig",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ServiceProviderConfig",
+              "host": ["{{baseUrl}}"],
+              "path": ["ServiceProviderConfig"]
+            },
+            "description": "Returns the mock's advertised SCIM capabilities (PATCH supported, OAuth Bearer auth, etc.)."
+          }
+        },
+        {
+          "name": "ResourceTypes",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ResourceTypes",
+              "host": ["{{baseUrl}}"],
+              "path": ["ResourceTypes"]
+            },
+            "description": "Returns `User` (with Notion role extension) and `Group`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List users (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users?startIndex=1&count=100",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users"],
+              "query": [
+                { "key": "startIndex", "value": "1", "description": "1-indexed page start" },
+                { "key": "count", "value": "100", "description": "Max 100" }
+              ]
+            },
+            "description": "Lists workspace members. Supports Notion-style SCIM pagination (`startIndex` 1-indexed, `count` capped at 100)."
+          }
+        },
+        {
+          "name": "List users (filter by email)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users?filter=email eq \"owner@example.com\"",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users"],
+              "query": [
+                { "key": "filter", "value": "email eq \"owner@example.com\"" }
+              ]
+            },
+            "description": "Email filter is case-insensitive. Only the `eq` operator is supported."
+          }
+        },
+        {
+          "name": "Get user by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users", "{{userId}}"]
+            },
+            "description": "Returns 404 with a SCIM error envelope when the id is unknown."
+          }
+        },
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" },
+              { "key": "Content-Type", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemas\": [\"urn:ietf:params:scim:schemas:core:2.0:User\"],\n  \"userName\": \"new.user@example.com\",\n  \"name\": {\n    \"givenName\": \"New\",\n    \"familyName\": \"User\",\n    \"formatted\": \"New User\"\n  },\n  \"emails\": [\n    { \"primary\": true, \"value\": \"new.user@example.com\", \"type\": \"Primary\" }\n  ],\n  \"active\": true\n}"
+            },
+            "description": "Creates a workspace member. Defaults to `member` role if the Notion extension is omitted. Returns 409 (`uniqueness`) if `userName` already exists."
+          }
+        },
+        {
+          "name": "PATCH user role (value-as-object form)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" },
+              { "key": "Content-Type", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users", "{{userId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemas\": [\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\n  \"Operations\": [\n    {\n      \"op\": \"replace\",\n      \"value\": {\n        \"urn:ietf:params:scim:schemas:extension:notion:2.0:User\": {\n          \"role\": \"member\"\n        }\n      }\n    }\n  ]\n}"
+            },
+            "description": "This is the shape baton-notion emits. Valid role values: `owner`, `membership_admin`, `member`, `restricted_member`."
+          }
+        },
+        {
+          "name": "PATCH user role (path form)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" },
+              { "key": "Content-Type", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users", "{{userId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemas\": [\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\n  \"Operations\": [\n    {\n      \"op\": \"replace\",\n      \"path\": \"urn:ietf:params:scim:schemas:extension:notion:2.0:User:role\",\n      \"value\": \"restricted_member\"\n    }\n  ]\n}"
+            },
+            "description": "Alternative SCIM PATCH spelling — the mock accepts it for compatibility with stricter IdPs that use the path form."
+          }
+        },
+        {
+          "name": "Delete user",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["Users", "{{userId}}"]
+            },
+            "description": "Removes the user from the workspace and from every group's members list. Returns 204 No Content on success, 404 SCIM error envelope when missing."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Groups",
+      "item": [
+        {
+          "name": "List groups (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Groups?startIndex=1&count=100",
+              "host": ["{{baseUrl}}"],
+              "path": ["Groups"],
+              "query": [
+                { "key": "startIndex", "value": "1" },
+                { "key": "count", "value": "100" }
+              ]
+            },
+            "description": "Same pagination conventions as `/Users`."
+          }
+        },
+        {
+          "name": "List groups (filter by displayName)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Groups?filter=displayName eq \"Engineering\"",
+              "host": ["{{baseUrl}}"],
+              "path": ["Groups"],
+              "query": [
+                { "key": "filter", "value": "displayName eq \"Engineering\"" }
+              ]
+            },
+            "description": "Only `displayName eq \"...\"` is supported (per the Notion help center)."
+          }
+        },
+        {
+          "name": "Get group by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/scim+json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/Groups/{{groupId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["Groups", "{{groupId}}"]
+            },
+            "description": "Returns the group with embedded `members[]` referencing user IDs."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,7 @@ func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.Resour
 	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client),
 		newGroupBuilder(d.client),
+		newRoleBuilder(d.client),
 	}
 }
 
@@ -26,7 +27,7 @@ func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.Resour
 func (d *Connector) Metadata(_ context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Notion",
-		Description: "Connector syncing users and groups from Notion",
+		Description: "Connector syncing users, groups and roles from Notion",
 		AccountCreationSchema: &v2.ConnectorAccountCreationSchema{
 			FieldMap: map[string]*v2.ConnectorAccountCreationSchema_Field{
 				"first_name": {
