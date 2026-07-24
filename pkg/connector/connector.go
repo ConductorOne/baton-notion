@@ -12,12 +12,13 @@ import (
 )
 
 type Connector struct {
-	client *client.NotionClient
+	client        *client.NotionClient
+	connectorOpts *cli.ConnectorOpts
 }
 
 func (d *Connector) ResourceSyncers(_ context.Context) []connectorbuilder.ResourceSyncerV2 {
 	return []connectorbuilder.ResourceSyncerV2{
-		newUserBuilder(d.client),
+		newUserBuilder(d.client, d.connectorOpts),
 		newGroupBuilder(d.client),
 		newRoleBuilder(d.client),
 	}
@@ -78,6 +79,7 @@ func New(ctx context.Context, cfg *config.Notion, opts *cli.ConnectorOpts) (conn
 	}
 
 	return &Connector{
-		client: scimClient,
+		client:        scimClient,
+		connectorOpts: opts,
 	}, nil, nil
 }

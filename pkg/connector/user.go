@@ -7,6 +7,7 @@ import (
 	"github.com/conductorone/baton-notion/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	sdkGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -24,6 +25,17 @@ const profileKeyWorkspaceRole = "workspace_role"
 
 type userBuilder struct {
 	client *client.NotionClient
+
+	// syncRoles gates the role-grant emission in Grants below. userBuilder
+	// emits role grants on roleBuilder's behalf (see role.go) as a sync
+	// optimization -- the user API response already includes the workspace
+	// role, so roleBuilder.Grants is a no-op delegate. If a customer's sync
+	// filter excludes the "role" resource type (SyncResourceTypeIDs), the SDK
+	// never syncs role resources at all, so emitting a grant that references
+	// roleResourceType would be wasted work referencing a type that was never
+	// synced. syncRoles defaults to true (sync everything) when no filter is
+	// configured, matching cli.ConnectorOpts.WillSyncResourceType semantics.
+	syncRoles bool
 }
 
 var _ connectorbuilder.AccountManagerV2 = &userBuilder{}
@@ -80,7 +92,16 @@ func (b *userBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncO
 // A role value that is not one of the four documented Notion roles is logged
 // at Warn and the grant is skipped — this surfaces silent drift (e.g. Notion
 // introducing a new tier) instead of dropping users invisibly.
+//
+// The role-grant emission is gated on syncRoles: if the sync filter excludes
+// the "role" resource type, roleBuilder never syncs role resources, so
+// emitting a grant against roleResourceType here would reference a type the
+// SDK never listed -- wasted work and a dangling reference.
 func (b *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	if !b.syncRoles {
+		return nil, nil, nil
+	}
+
 	role := workspaceRoleFromResource(resource)
 	if role == "" {
 		return nil, nil, nil
@@ -253,8 +274,20 @@ func parseIntoUserResource(user client.User) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func newUserBuilder(scimClient *client.NotionClient) *userBuilder {
+// newUserBuilder wires connectorOpts' sync filter into userBuilder so
+// Grants can skip emitting role grants when "role" is excluded from the
+// sync (see the syncRoles field doc on userBuilder). connectorOpts may be
+// nil (e.g. constructed directly in tests); a nil filter means "sync
+// everything", matching cli.ConnectorOpts.WillSyncResourceType's own
+// no-filter-set behavior.
+func newUserBuilder(scimClient *client.NotionClient, connectorOpts *cli.ConnectorOpts) *userBuilder {
+	syncRoles := true
+	if connectorOpts != nil {
+		syncRoles = connectorOpts.WillSyncResourceType(roleResourceType.Id)
+	}
+
 	return &userBuilder{
-		client: scimClient,
+		client:    scimClient,
+		syncRoles: syncRoles,
 	}
 }
