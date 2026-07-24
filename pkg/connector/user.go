@@ -13,6 +13,7 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,22 +27,55 @@ const profileKeyWorkspaceRole = "workspace_role"
 type userBuilder struct {
 	client *client.NotionClient
 
-	// syncRoles gates the role-grant emission in Grants below. userBuilder
-	// emits role grants on roleBuilder's behalf (see role.go) as a sync
-	// optimization -- the user API response already includes the workspace
-	// role, so roleBuilder.Grants is a no-op delegate. If a customer's sync
-	// filter excludes the "role" resource type (SyncResourceTypeIDs), the SDK
-	// never syncs role resources at all, so emitting a grant that references
-	// roleResourceType would be wasted work referencing a type that was never
-	// synced. syncRoles defaults to true (sync everything) when no filter is
-	// configured, matching cli.ConnectorOpts.WillSyncResourceType semantics.
+	// syncRoles gates whether "role" is included in this sync (see
+	// ResourceType below). userBuilder emits role grants on roleBuilder's
+	// behalf (see role.go) as a sync optimization -- the user API response
+	// already includes the workspace role, so roleBuilder.Grants is a no-op
+	// delegate. If a customer's sync filter excludes the "role" resource type
+	// (SyncResourceTypeIDs), role resources are never synced at all, so a
+	// grant that references roleResourceType would be a dangling reference to
+	// a type the SDK never listed. syncRoles defaults to true (sync
+	// everything) when no filter is configured, matching
+	// cli.ConnectorOpts.WillSyncResourceType semantics.
 	syncRoles bool
 }
 
 var _ connectorbuilder.AccountManagerV2 = &userBuilder{}
 
+// ResourceType returns userResourceType with annotations computed from
+// syncRoles, rather than the package var's own (nil) annotations. The SDK
+// decides whether to call Entitlements/Grants for a resource type based on
+// the annotations returned here -- not by any runtime check inside those
+// methods -- so gating happens at this layer instead of inside Grants.
+//
+// user has no entitlements of its own, ever, so when "role" IS being synced
+// we set SkipEntitlements (matching the connector's long-standing static
+// behavior). When "role" is NOT being synced, we set
+// SkipEntitlementsAndGrants instead: this tells the SDK to skip calling both
+// Entitlements and Grants for user resources entirely, which is what
+// prevents Grants from emitting a role grant that references a resource
+// type the SDK never listed.
+//
+// A clone of userResourceType is returned -- never the package var itself --
+// so concurrent/repeated calls with different syncRoles values can't leak
+// annotations onto each other via a shared pointer.
 func (b *userBuilder) ResourceType(_ context.Context) *v2.ResourceType {
-	return userResourceType
+	rt, ok := proto.Clone(userResourceType).(*v2.ResourceType)
+	if !ok {
+		// proto.Clone on a *v2.ResourceType always yields a *v2.ResourceType;
+		// this branch is unreachable in practice.
+		return userResourceType
+	}
+
+	annos := annotations.Annotations(rt.Annotations)
+	if b.syncRoles {
+		annos.Append(&v2.SkipEntitlements{})
+	} else {
+		annos.Append(&v2.SkipEntitlementsAndGrants{})
+	}
+	rt.Annotations = annos
+
+	return rt
 }
 
 func (b *userBuilder) List(ctx context.Context, _ *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
@@ -93,15 +127,13 @@ func (b *userBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncO
 // at Warn and the grant is skipped — this surfaces silent drift (e.g. Notion
 // introducing a new tier) instead of dropping users invisibly.
 //
-// The role-grant emission is gated on syncRoles: if the sync filter excludes
-// the "role" resource type, roleBuilder never syncs role resources, so
-// emitting a grant against roleResourceType here would reference a type the
-// SDK never listed -- wasted work and a dangling reference.
+// Grants is unconditional: it always emits the role grant when the user has
+// one, regardless of syncRoles. Gating on whether "role" is included in the
+// sync happens in ResourceType instead, via the SkipEntitlementsAndGrants
+// annotation -- the SDK decides whether to call Grants for user resources at
+// all based on that, so by the time Grants runs here, the SDK has already
+// decided the grant is wanted.
 func (b *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	if !b.syncRoles {
-		return nil, nil, nil
-	}
-
 	role := workspaceRoleFromResource(resource)
 	if role == "" {
 		return nil, nil, nil
