@@ -102,11 +102,7 @@ func (b *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.Sy
 }
 
 func workspaceRoleFromResource(resource *v2.Resource) string {
-	ut, err := rs.GetUserTrait(resource)
-	if err != nil || ut == nil {
-		return ""
-	}
-	profile := ut.GetProfile()
+	profile := resource.GetProfile()
 	if profile == nil {
 		return ""
 	}
@@ -237,8 +233,6 @@ func parseIntoUserResource(user client.User) (*v2.Resource, error) {
 	}
 
 	userTraitOptions := []rs.UserTraitOption{
-		rs.WithStatus(userStatus),
-		rs.WithUserProfile(profile),
 		rs.WithUserLogin(user.UserName),
 		rs.WithEmail(user.UserName, true),
 	}
@@ -249,6 +243,8 @@ func parseIntoUserResource(user client.User) (*v2.Resource, error) {
 		userResourceType,
 		user.ID,
 		userTraitOptions,
+		rs.WithResourceProfile(profile),
+		rs.WithResourceStatus(v2.Status_ResourceStatus(userStatus), ""),
 	)
 	if err != nil {
 		return nil, err
