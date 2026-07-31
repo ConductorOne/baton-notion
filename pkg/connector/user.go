@@ -102,7 +102,7 @@ func (b *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.Sy
 }
 
 func workspaceRoleFromResource(resource *v2.Resource) string {
-	profile := resource.GetProfile()
+	profile := rs.GetProfile(resource)
 	if profile == nil {
 		return ""
 	}
