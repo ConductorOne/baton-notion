@@ -101,13 +101,12 @@ func (b *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 }
 
 func roleResource(role notionRole) (*v2.Resource, error) {
-	roleTraitOpts := []rs.RoleTraitOption{
-		rs.WithRoleProfile(map[string]any{
-			"role_id":           role.id,
-			"description":       role.description,
-			"is_administrative": role.id == client.RoleOwner || role.id == client.RoleMembershipAdmin,
-		}),
-	}
+	roleTraitOpts := []rs.RoleTraitOption{}
+	roleProfile := rs.WithResourceProfile(map[string]any{
+		"role_id":           role.id,
+		"description":       role.description,
+		"is_administrative": role.id == client.RoleOwner || role.id == client.RoleMembershipAdmin,
+	})
 
 	// EntitlementIDs links the seat counts back to the grants that consume
 	// them so the C1 App Utilization feature (CE-720) can map seat-holders to
@@ -128,6 +127,7 @@ func roleResource(role notionRole) (*v2.Resource, error) {
 		roleResourceType,
 		role.id,
 		roleTraitOpts,
+		roleProfile,
 		rs.WithLicenseProfileTrait(licenseOpts...),
 	)
 }
