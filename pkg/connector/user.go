@@ -60,12 +60,7 @@ var _ connectorbuilder.AccountManagerV2 = &userBuilder{}
 // so concurrent/repeated calls with different syncRoles values can't leak
 // annotations onto each other via a shared pointer.
 func (b *userBuilder) ResourceType(_ context.Context) *v2.ResourceType {
-	rt, ok := proto.Clone(userResourceType).(*v2.ResourceType)
-	if !ok {
-		// proto.Clone on a *v2.ResourceType always yields a *v2.ResourceType;
-		// this branch is unreachable in practice.
-		return userResourceType
-	}
+	rt := proto.Clone(userResourceType).(*v2.ResourceType)
 
 	annos := annotations.Annotations(rt.Annotations)
 	if b.syncRoles {
