@@ -26,7 +26,7 @@ baton resources
 ```
 docker run --rm -v $(pwd):/out \
   -e BATON_SCIM_TOKEN=<scim-token> \
-  ghcr.io/conductorone/baton-notion:latest -f "/out/sync.c1z"
+  public.ecr.aws/conductorone/baton-notion:latest -f "/out/sync.c1z"
 
 docker run --rm -v $(pwd):/out \
   ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
